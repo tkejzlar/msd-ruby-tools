@@ -119,4 +119,82 @@ RSpec.describe MerckTools::LLM::OpenAIClient do
     result = client.generate(messages: [{ role: "user", content: "hi" }])
     expect(result).to eq("Hello from OpenAI")
   end
+
+  it "defaults to max_completion_tokens" do
+    req = stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .with { |request|
+        body = JSON.parse(request.body)
+        body.key?("max_completion_tokens") && !body.key?("max_tokens")
+      }
+      .to_return(
+        status: 200,
+        body: { choices: [{ message: { content: "ok" } }] }.to_json
+      )
+
+    client.generate(messages: [{ role: "user", content: "hi" }])
+    expect(req).to have_been_requested
+  end
+
+  it "falls back to max_tokens when API rejects max_completion_tokens" do
+    error_body = {
+      error: {
+        message: "Unsupported parameter: 'max_completion_tokens' is not supported with this model. Use 'max_tokens' instead.",
+        type: "invalid_request_error",
+        param: "max_completion_tokens",
+        code: "unsupported_parameter"
+      }
+    }.to_json
+
+    # First call rejected, second succeeds with max_tokens
+    rejected = stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .with { |r| JSON.parse(r.body).key?("max_completion_tokens") }
+      .to_return(status: 400, body: error_body)
+
+    retried = stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .with { |r| JSON.parse(r.body).key?("max_tokens") && !JSON.parse(r.body).key?("max_completion_tokens") }
+      .to_return(
+        status: 200,
+        body: { choices: [{ message: { content: "worked" } }] }.to_json
+      )
+
+    result = client.generate(messages: [{ role: "user", content: "hi" }])
+    expect(result).to eq("worked")
+    expect(rejected).to have_been_requested
+    expect(retried).to have_been_requested
+  end
+
+  it "remembers the corrected param for subsequent calls" do
+    error_body = {
+      error: {
+        message: "Unsupported parameter: 'max_completion_tokens' is not supported with this model. Use 'max_tokens' instead.",
+        type: "invalid_request_error"
+      }
+    }.to_json
+
+    stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .with { |r| JSON.parse(r.body).key?("max_completion_tokens") }
+      .to_return(status: 400, body: error_body)
+
+    stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .with { |r| JSON.parse(r.body).key?("max_tokens") }
+      .to_return(
+        status: 200,
+        body: { choices: [{ message: { content: "ok" } }] }.to_json
+      )
+
+    client.generate(messages: [{ role: "user", content: "first" }])
+
+    # Second call should go straight to max_tokens (no 400 needed)
+    WebMock.reset!
+    direct = stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .with { |r| JSON.parse(r.body).key?("max_tokens") && !JSON.parse(r.body).key?("max_completion_tokens") }
+      .to_return(
+        status: 200,
+        body: { choices: [{ message: { content: "second" } }] }.to_json
+      )
+
+    result = client.generate(messages: [{ role: "user", content: "second" }])
+    expect(result).to eq("second")
+    expect(direct).to have_been_requested
+  end
 end

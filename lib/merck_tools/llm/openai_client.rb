@@ -33,11 +33,22 @@ module MerckTools
         msgs = MerckTools::LLM.normalize_messages(messages)
         raise Error, "No messages provided" if msgs.empty?
 
-        uri = URI("#{@api_base}/v1/chat/completions")
-        body = { model: @model, messages: msgs, temperature: temperature.to_f, max_tokens: max_tokens.to_i }
+        uri  = URI("#{@api_base}/v1/chat/completions")
+        body = { model: @model, messages: msgs, temperature: temperature.to_f }
+        body[max_tokens_param] = max_tokens.to_i
         body[:response_format] = { type: "json_object" } if json
 
         res = post_json(uri, body)
+
+        # If the API rejects our token-limit param, retry once with the alternate name.
+        if res.code.to_i == 400 && res.body.to_s.include?("max_tokens") && res.body.to_s.include?("max_completion_tokens")
+          swap_max_tokens_param!
+          body.delete(:max_tokens)
+          body.delete(:max_completion_tokens)
+          body[max_tokens_param] = max_tokens.to_i
+          res = post_json(uri, body)
+        end
+
         raise Error, "OpenAI #{res.code}: #{res.body}" unless res.is_a?(Net::HTTPSuccess)
 
         begin
@@ -52,8 +63,9 @@ module MerckTools
         msgs = MerckTools::LLM.normalize_messages(messages)
         raise Error, "No messages provided" if msgs.empty?
 
-        uri = URI("#{@api_base}/v1/chat/completions")
-        body = { model: @model, messages: msgs, temperature: temperature.to_f, max_tokens: max_tokens.to_i, stream: true }
+        uri  = URI("#{@api_base}/v1/chat/completions")
+        body = { model: @model, messages: msgs, temperature: temperature.to_f, stream: true }
+        body[max_tokens_param] = max_tokens.to_i
         body[:response_format] = { type: "json_object" } if json
 
         buffer = +""
@@ -82,6 +94,17 @@ module MerckTools
       end
 
       private
+
+      # Newer models require max_completion_tokens; older ones use max_tokens.
+      # We default to max_completion_tokens (the newer param) and auto-correct
+      # on a 400 rejection so we never need to maintain a model list.
+      def max_tokens_param
+        @max_tokens_param ||= :max_completion_tokens
+      end
+
+      def swap_max_tokens_param!
+        @max_tokens_param = max_tokens_param == :max_completion_tokens ? :max_tokens : :max_completion_tokens
+      end
 
       def post_json(uri, body)
         req = build_request(uri, body)
