@@ -90,14 +90,21 @@ module MerckTools
       private
 
       def basic_auth_header
-        # If the secret already looks Base64-encoded (no colons), use it raw.
-        # Otherwise, encode client_id:client_secret.
-        encoded = if @client_secret.include?(":") || @client_secret.length < 20
-                    Base64.strict_encode64("#{@client_id}:#{@client_secret}")
-                  else
+        # Some deployments provide a pre-encoded Base64 string as the secret
+        # (long, no colons, valid Base64 chars only). In that case, use it as-is.
+        # Otherwise, encode the standard "client_id:client_secret" pair.
+        encoded = if pre_encoded_secret?
                     @client_secret
+                  else
+                    Base64.strict_encode64("#{@client_id}:#{@client_secret}")
                   end
         "Basic #{encoded}"
+      end
+
+      def pre_encoded_secret?
+        @client_secret.length >= 20 &&
+          !@client_secret.include?(":") &&
+          @client_secret.match?(%r{\A[A-Za-z0-9+/]+=*\z})
       end
 
       def post_form(url, form_hash)
@@ -122,7 +129,11 @@ module MerckTools
         Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
           res = http.request(req)
           body = res.body.to_s
-          json = JSON.parse(body) rescue { "raw" => body }
+          json = begin
+            JSON.parse(body)
+          rescue JSON::ParserError
+            { "raw" => body }
+          end
           { status: res.code.to_i, json: json }
         end
       end

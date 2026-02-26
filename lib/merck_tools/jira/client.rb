@@ -40,7 +40,11 @@ module MerckTools
         @api_token  = api_token.to_s
         @pagination = pagination
         @logger     = Logger.new($stdout)
-        @logger.level = Logger.const_get(log_level.upcase) rescue Logger::WARN
+        @logger.level = begin
+          Logger.const_get(log_level.upcase)
+        rescue NameError
+          Logger::WARN
+        end
       end
 
       # ── Search ────────────────────────────────────────────────────
@@ -108,7 +112,7 @@ module MerckTools
           params = { maxResults: 50, startAt: start_at }
           params[:state] = state if state
           data = get("/rest/agile/latest/board/#{board_id}/sprint", params: params)
-          values = data && data["values"] || []
+          values = (data && data["values"]) || []
           break if values.empty?
           all.concat(values)
           start_at += values.length
@@ -168,7 +172,7 @@ module MerckTools
       rescue RestClient::ExceptionWithResponse => e
         @logger.error("[JIRA][GET] #{url} #{e.response&.code}: #{e.response&.body&.to_s&.slice(0, 300)}")
         nil
-      rescue => e
+      rescue StandardError => e
         @logger.error("[JIRA][GET] #{url} #{e.class}: #{e.message}")
         nil
       end
@@ -191,6 +195,9 @@ module MerckTools
       rescue RestClient::ExceptionWithResponse => e
         @logger.error("[JIRA][POST] #{url} #{e.response&.code}: #{e.response&.body&.to_s&.slice(0, 300)}")
         raise Error, "Jira POST failed: #{e.response&.code}"
+      rescue StandardError => e
+        @logger.error("[JIRA][POST] #{url} #{e.class}: #{e.message}")
+        raise Error, "Jira POST failed: #{e.message}"
       end
 
       def post_as(path, payload, username:, token:)
@@ -207,7 +214,7 @@ module MerckTools
       rescue RestClient::ExceptionWithResponse => e
         @logger.error("[JIRA][POST_AS] #{url} #{e.response&.code}")
         false
-      rescue => e
+      rescue StandardError => e
         @logger.error("[JIRA][POST_AS] #{url} #{e.class}: #{e.message}")
         false
       end

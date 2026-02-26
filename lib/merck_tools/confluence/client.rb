@@ -3,6 +3,7 @@
 require "rest-client"
 require "json"
 require "base64"
+require "logger"
 
 module MerckTools
   module Confluence
@@ -11,10 +12,10 @@ module MerckTools
     # Confluence REST API client (v1 content API).
     #
     # ENV vars:
-    #   CONFLUENCE_BASE_URL          – e.g. https://share.merck.com
-    #   CONFLUENCE_USER              – service account user (fallback: JIRA_EMAIL, predictify_user)
-    #   CONFLUENCE_API_TOKEN         – service account token (fallback: JIRA_API_TOKEN, predictify_password)
-    #   CONFLUENCE_DEFAULT_CONFIG_PAGE – default page ID for config lookups
+    #   CONFLUENCE_BASE_URL   – e.g. https://share.merck.com
+    #   CONFLUENCE_USER       – service account user (fallback: JIRA_EMAIL, predictify_user)
+    #   CONFLUENCE_API_TOKEN  – service account token (fallback: JIRA_API_TOKEN, predictify_password)
+    #   CONFLUENCE_LOG_LEVEL  – DEBUG / INFO / WARN / ERROR (default: WARN)
     #
     class Client
       attr_reader :base_url
@@ -22,11 +23,18 @@ module MerckTools
       def initialize(
         base_url:  ENV.fetch("CONFLUENCE_BASE_URL") { ENV.fetch("CONFLUENCE_REST_URL", "https://share.merck.com") },
         username:  ENV.fetch("CONFLUENCE_USER")      { ENV.fetch("JIRA_EMAIL") { ENV["predictify_user"] } },
-        api_token: ENV.fetch("CONFLUENCE_API_TOKEN") { ENV.fetch("JIRA_API_TOKEN") { ENV["predictify_password"] } }
+        api_token: ENV.fetch("CONFLUENCE_API_TOKEN") { ENV.fetch("JIRA_API_TOKEN") { ENV["predictify_password"] } },
+        log_level: ENV.fetch("CONFLUENCE_LOG_LEVEL", "WARN")
       )
         @base_url  = base_url.to_s.chomp("/")
         @username  = username.to_s
         @api_token = api_token.to_s
+        @logger    = Logger.new($stdout)
+        @logger.level = begin
+          Logger.const_get(log_level.upcase)
+        rescue NameError
+          Logger::WARN
+        end
       end
 
       # Read a page's storage-format body and version info.
@@ -64,17 +72,20 @@ module MerckTools
       # Download a specific attachment by filename.
       def download_attachment(page_id, filename)
         list = attachments(page_id)
-        results = list && list["results"] || []
+        results = (list && list["results"]) || []
         att = results.find { |a| a["title"] == filename }
         return nil unless att
 
         url = "#{@base_url}#{att['_links']['download']}"
+        @logger.debug("[CONFLUENCE][DOWNLOAD] #{url}")
         resp = RestClient::Request.execute(
           method: :get, url: url,
           headers: { Authorization: auth_header, Accept: "*/*" },
           timeout: 120
         )
         resp.body
+      rescue RestClient::ExceptionWithResponse => e
+        raise Error, "Confluence download #{filename} failed: #{e.response&.code}"
       end
 
       private
@@ -85,6 +96,7 @@ module MerckTools
 
       def get(path, params: {})
         url = "#{@base_url}#{path}"
+        @logger.debug("[CONFLUENCE][GET] #{url}")
         resp = RestClient::Request.execute(
           method: :get, url: url,
           headers: { Authorization: auth_header, Accept: "application/json", params: params },
@@ -92,11 +104,13 @@ module MerckTools
         )
         JSON.parse(resp.body)
       rescue RestClient::ExceptionWithResponse => e
+        @logger.error("[CONFLUENCE][GET] #{path} #{e.response&.code}: #{e.response&.body&.to_s&.slice(0, 300)}")
         raise Error, "Confluence GET #{path} failed: #{e.response&.code} #{e.response&.body&.to_s&.slice(0, 300)}"
       end
 
       def put(path, payload)
         url = "#{@base_url}#{path}"
+        @logger.debug("[CONFLUENCE][PUT] #{url}")
         resp = RestClient::Request.execute(
           method: :put, url: url,
           headers: { Authorization: auth_header, content_type: :json },
@@ -105,6 +119,7 @@ module MerckTools
         )
         JSON.parse(resp.body)
       rescue RestClient::ExceptionWithResponse => e
+        @logger.error("[CONFLUENCE][PUT] #{path} #{e.response&.code}: #{e.response&.body&.to_s&.slice(0, 300)}")
         raise Error, "Confluence PUT #{path} failed: #{e.response&.code} #{e.response&.body&.to_s&.slice(0, 300)}"
       end
     end
