@@ -12,11 +12,15 @@ module MerckTools
     # Jira REST API client.
     #
     # Supports both service-account queries and per-user actions (vote, comment).
+    # Works with both Jira Cloud (email + API token) and Jira Server/Data Center
+    # (username + password).
     #
     # ENV vars:
     #   JIRA_BASE_URL       – e.g. https://issues.merck.com
-    #   JIRA_EMAIL          – service account email/username
-    #   JIRA_API_TOKEN      – service account API token / password
+    #   JIRA_EMAIL          – service account email (Cloud) or username (Server)
+    #   JIRA_USERNAME       – alias for JIRA_EMAIL (Server-friendly naming)
+    #   JIRA_API_TOKEN      – API token (Cloud)
+    #   JIRA_PASSWORD       – password (Server/Data Center)
     #   JIRA_PAGINATION     – max results per request (default: 500)
     #   JIRA_LOG_LEVEL      – DEBUG / INFO / WARN / ERROR
     #
@@ -30,14 +34,15 @@ module MerckTools
 
       def initialize(
         base_url:   ENV.fetch("JIRA_BASE_URL") { ENV.fetch("JIRA_REST_URL", "https://issues.merck.com") },
-        username:   ENV.fetch("JIRA_EMAIL")     { ENV["predictify_user"] },
-        api_token:  ENV.fetch("JIRA_API_TOKEN") { ENV["predictify_password"] },
+        username:   ENV.fetch("JIRA_EMAIL") { ENV.fetch("JIRA_USERNAME") { ENV["predictify_user"] } },
+        api_token:  nil,
+        password:   nil,
         pagination: Integer(ENV.fetch("JIRA_PAGINATION", "500")),
         log_level:  ENV.fetch("JIRA_LOG_LEVEL", "WARN")
       )
         @base_url   = base_url.to_s.chomp("/")
         @username   = username.to_s
-        @api_token  = api_token.to_s
+        @secret     = (api_token || password || resolve_secret).to_s
         @pagination = pagination
         @logger     = Logger.new($stdout)
         @logger.level = begin
@@ -151,7 +156,11 @@ module MerckTools
 
       private
 
-      def auth_header(user = @username, pass = @api_token)
+      def resolve_secret
+        ENV.fetch("JIRA_API_TOKEN") { ENV.fetch("JIRA_PASSWORD") { ENV["predictify_password"] } }
+      end
+
+      def auth_header(user = @username, pass = @secret)
         "Basic #{Base64.strict_encode64("#{user}:#{pass}")}"
       end
 

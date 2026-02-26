@@ -11,10 +11,14 @@ module MerckTools
 
     # Confluence REST API client (v1 content API).
     #
+    # Works with both Confluence Cloud (email + API token) and Confluence
+    # Server/Data Center (username + password).
+    #
     # ENV vars:
     #   CONFLUENCE_BASE_URL   – e.g. https://share.merck.com
-    #   CONFLUENCE_USER       – service account user (fallback: JIRA_EMAIL, predictify_user)
-    #   CONFLUENCE_API_TOKEN  – service account token (fallback: JIRA_API_TOKEN, predictify_password)
+    #   CONFLUENCE_USER       – service account user (fallback: JIRA_EMAIL, JIRA_USERNAME, predictify_user)
+    #   CONFLUENCE_API_TOKEN  – API token (Cloud, fallback: JIRA_API_TOKEN)
+    #   CONFLUENCE_PASSWORD   – password (Server/Data Center, fallback: JIRA_PASSWORD, predictify_password)
     #   CONFLUENCE_LOG_LEVEL  – DEBUG / INFO / WARN / ERROR (default: WARN)
     #
     class Client
@@ -22,13 +26,14 @@ module MerckTools
 
       def initialize(
         base_url:  ENV.fetch("CONFLUENCE_BASE_URL") { ENV.fetch("CONFLUENCE_REST_URL", "https://share.merck.com") },
-        username:  ENV.fetch("CONFLUENCE_USER")      { ENV.fetch("JIRA_EMAIL") { ENV["predictify_user"] } },
-        api_token: ENV.fetch("CONFLUENCE_API_TOKEN") { ENV.fetch("JIRA_API_TOKEN") { ENV["predictify_password"] } },
+        username:  ENV.fetch("CONFLUENCE_USER") { ENV.fetch("JIRA_EMAIL") { ENV.fetch("JIRA_USERNAME") { ENV["predictify_user"] } } },
+        api_token: nil,
+        password:  nil,
         log_level: ENV.fetch("CONFLUENCE_LOG_LEVEL", "WARN")
       )
         @base_url  = base_url.to_s.chomp("/")
         @username  = username.to_s
-        @api_token = api_token.to_s
+        @secret    = (api_token || password || resolve_secret).to_s
         @logger    = Logger.new($stdout)
         @logger.level = begin
           Logger.const_get(log_level.upcase)
@@ -90,8 +95,18 @@ module MerckTools
 
       private
 
+      def resolve_secret
+        ENV.fetch("CONFLUENCE_API_TOKEN") {
+          ENV.fetch("CONFLUENCE_PASSWORD") {
+            ENV.fetch("JIRA_API_TOKEN") {
+              ENV.fetch("JIRA_PASSWORD") { ENV["predictify_password"] }
+            }
+          }
+        }
+      end
+
       def auth_header
-        "Basic #{Base64.strict_encode64("#{@username}:#{@api_token}")}"
+        "Basic #{Base64.strict_encode64("#{@username}:#{@secret}")}"
       end
 
       def get(path, params: {})

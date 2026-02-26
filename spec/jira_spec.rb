@@ -13,6 +13,86 @@ RSpec.describe MerckTools::Jira::Client do
     )
   end
 
+  describe "authentication" do
+    it "uses api_token when provided (Cloud)" do
+      cloud_client = described_class.new(
+        base_url: "https://jira.example.com",
+        username: "user@example.com",
+        api_token: "cloud-api-token",
+        log_level: "ERROR"
+      )
+
+      stub_request(:get, /jira\.example\.com\/rest\/api\/latest\/search/)
+        .with(headers: { "Authorization" => "Basic #{Base64.strict_encode64("user@example.com:cloud-api-token")}" })
+        .to_return(status: 200, body: { issues: [], total: 0 }.to_json)
+
+      cloud_client.search("project = PROJ")
+    end
+
+    it "uses password when provided (Server/Data Center)" do
+      server_client = described_class.new(
+        base_url: "https://jira.example.com",
+        username: "svc-user",
+        password: "my-password",
+        log_level: "ERROR"
+      )
+
+      stub_request(:get, /jira\.example\.com\/rest\/api\/latest\/search/)
+        .with(headers: { "Authorization" => "Basic #{Base64.strict_encode64("svc-user:my-password")}" })
+        .to_return(status: 200, body: { issues: [], total: 0 }.to_json)
+
+      server_client.search("project = PROJ")
+    end
+
+    it "prefers api_token over password when both are given" do
+      client = described_class.new(
+        base_url: "https://jira.example.com",
+        username: "user",
+        api_token: "the-token",
+        password: "the-password",
+        log_level: "ERROR"
+      )
+
+      stub_request(:get, /jira\.example\.com\/rest\/api\/latest\/search/)
+        .with(headers: { "Authorization" => "Basic #{Base64.strict_encode64("user:the-token")}" })
+        .to_return(status: 200, body: { issues: [], total: 0 }.to_json)
+
+      client.search("project = PROJ")
+    end
+
+    it "falls back to JIRA_PASSWORD env var when neither api_token nor password is given" do
+      stub_env("JIRA_API_TOKEN" => nil, "JIRA_PASSWORD" => "env-password", "predictify_password" => nil)
+
+      env_client = described_class.new(
+        base_url: "https://jira.example.com",
+        username: "svc-user",
+        log_level: "ERROR"
+      )
+
+      stub_request(:get, /jira\.example\.com\/rest\/api\/latest\/search/)
+        .with(headers: { "Authorization" => "Basic #{Base64.strict_encode64("svc-user:env-password")}" })
+        .to_return(status: 200, body: { issues: [], total: 0 }.to_json)
+
+      env_client.search("project = PROJ")
+    end
+
+    it "falls back to JIRA_USERNAME env var for username" do
+      stub_env("JIRA_EMAIL" => nil, "JIRA_USERNAME" => "server-user", "predictify_user" => nil)
+
+      env_client = described_class.new(
+        base_url: "https://jira.example.com",
+        api_token: "tok",
+        log_level: "ERROR"
+      )
+
+      stub_request(:get, /jira\.example\.com\/rest\/api\/latest\/search/)
+        .with(headers: { "Authorization" => "Basic #{Base64.strict_encode64("server-user:tok")}" })
+        .to_return(status: 200, body: { issues: [], total: 0 }.to_json)
+
+      env_client.search("project = PROJ")
+    end
+  end
+
   describe "#search" do
     it "fetches issues via JQL" do
       stub_request(:get, /jira\.example\.com\/rest\/api\/latest\/search/)

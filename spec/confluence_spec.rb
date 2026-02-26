@@ -11,6 +11,51 @@ RSpec.describe MerckTools::Confluence::Client do
     )
   end
 
+  describe "authentication" do
+    it "uses api_token when provided (Cloud)" do
+      cloud_client = described_class.new(
+        base_url: "https://wiki.example.com",
+        username: "user@example.com",
+        api_token: "cloud-api-token"
+      )
+
+      stub_request(:get, /wiki\.example\.com\/rest\/api\/latest\/content\/123/)
+        .with(headers: { "Authorization" => "Basic #{Base64.strict_encode64("user@example.com:cloud-api-token")}" })
+        .to_return(status: 200, body: { title: "Page", version: { number: 1 }, body: { storage: { value: "" } } }.to_json)
+
+      cloud_client.read("123")
+    end
+
+    it "uses password when provided (Server/Data Center)" do
+      server_client = described_class.new(
+        base_url: "https://wiki.example.com",
+        username: "svc-user",
+        password: "my-password"
+      )
+
+      stub_request(:get, /wiki\.example\.com\/rest\/api\/latest\/content\/123/)
+        .with(headers: { "Authorization" => "Basic #{Base64.strict_encode64("svc-user:my-password")}" })
+        .to_return(status: 200, body: { title: "Page", version: { number: 1 }, body: { storage: { value: "" } } }.to_json)
+
+      server_client.read("123")
+    end
+
+    it "prefers api_token over password when both are given" do
+      client = described_class.new(
+        base_url: "https://wiki.example.com",
+        username: "user",
+        api_token: "the-token",
+        password: "the-password"
+      )
+
+      stub_request(:get, /wiki\.example\.com\/rest\/api\/latest\/content\/123/)
+        .with(headers: { "Authorization" => "Basic #{Base64.strict_encode64("user:the-token")}" })
+        .to_return(status: 200, body: { title: "Page", version: { number: 1 }, body: { storage: { value: "" } } }.to_json)
+
+      client.read("123")
+    end
+  end
+
   describe "#read" do
     it "fetches a page with body and version" do
       stub_request(:get, /wiki\.example\.com\/rest\/api\/latest\/content\/12345/)
