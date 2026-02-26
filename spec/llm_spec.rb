@@ -119,4 +119,44 @@ RSpec.describe MerckTools::LLM::OpenAIClient do
     result = client.generate(messages: [{ role: "user", content: "hi" }])
     expect(result).to eq("Hello from OpenAI")
   end
+
+  it "sends max_tokens for gpt models" do
+    req = stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .with(body: hash_including("max_tokens" => 900))
+      .to_return(
+        status: 200,
+        body: { choices: [{ message: { content: "ok" } }] }.to_json
+      )
+
+    client.generate(messages: [{ role: "user", content: "hi" }])
+    expect(req).to have_been_requested
+  end
+
+  context "with a reasoning model (o-series)" do
+    let(:client) do
+      described_class.new(
+        api_key: "sk-test",
+        api_base: "https://api.openai.com",
+        model: "o3-mini",
+        read_timeout: 10,
+        open_timeout: 5
+      )
+    end
+
+    it "sends max_completion_tokens instead of max_tokens" do
+      req = stub_request(:post, "https://api.openai.com/v1/chat/completions")
+        .with { |request|
+          body = JSON.parse(request.body)
+          body.key?("max_completion_tokens") && !body.key?("max_tokens")
+        }
+        .to_return(
+          status: 200,
+          body: { choices: [{ message: { content: "reasoning reply" } }] }.to_json
+        )
+
+      result = client.generate(messages: [{ role: "user", content: "think about this" }])
+      expect(result).to eq("reasoning reply")
+      expect(req).to have_been_requested
+    end
+  end
 end

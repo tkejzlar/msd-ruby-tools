@@ -34,7 +34,8 @@ module MerckTools
         raise Error, "No messages provided" if msgs.empty?
 
         uri = URI("#{@api_base}/v1/chat/completions")
-        body = { model: @model, messages: msgs, temperature: temperature.to_f, max_tokens: max_tokens.to_i }
+        body = { model: @model, messages: msgs, temperature: temperature.to_f }
+        body[max_tokens_key] = max_tokens.to_i
         body[:response_format] = { type: "json_object" } if json
 
         res = post_json(uri, body)
@@ -53,7 +54,8 @@ module MerckTools
         raise Error, "No messages provided" if msgs.empty?
 
         uri = URI("#{@api_base}/v1/chat/completions")
-        body = { model: @model, messages: msgs, temperature: temperature.to_f, max_tokens: max_tokens.to_i, stream: true }
+        body = { model: @model, messages: msgs, temperature: temperature.to_f, stream: true }
+        body[max_tokens_key] = max_tokens.to_i
         body[:response_format] = { type: "json_object" } if json
 
         buffer = +""
@@ -82,6 +84,12 @@ module MerckTools
       end
 
       private
+
+      # Reasoning-series models (o1, o3, o4, …) require max_completion_tokens;
+      # classic GPT models use max_tokens.
+      def max_tokens_key
+        @model.match?(/\A(o[0-9])/) ? :max_completion_tokens : :max_tokens
+      end
 
       def post_json(uri, body)
         req = build_request(uri, body)
