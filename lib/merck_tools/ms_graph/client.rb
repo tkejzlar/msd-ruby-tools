@@ -7,6 +7,8 @@ require "json"
 
 module MerckTools
   module MSGraph
+    class Error < StandardError; end
+
     # Microsoft Graph client (via Merck API proxy).
     #
     # ENV vars:
@@ -32,15 +34,20 @@ module MerckTools
         @read_timeout = read_timeout
       end
 
-      # Fetch user profile JSON from /users/{identifier}
+      # Fetch user profile JSON from /users/{identifier}.
+      # Returns the parsed profile Hash, or nil on failure.
       def user(identifier)
         url = "#{@base}/users/#{CGI.escape(identifier)}"
         resp = api_get(url, accept: "application/json")
         return nil unless resp[:status] == 200
-        JSON.parse(resp[:body]) rescue nil
+
+        JSON.parse(resp[:body])
+      rescue JSON::ParserError
+        nil
       end
 
-      # Fetch user photo bytes.  Tries multiple identifier candidates.
+      # Fetch user photo bytes.  Tries multiple identifier candidates
+      # (email, isid@domain, isid, UPN) and returns the first successful match.
       def user_photo(profile)
         candidates = build_identifier_candidates(profile)
         last = nil
@@ -48,7 +55,7 @@ module MerckTools
           res = user_photo_raw(id)
           last = res
           return res if res[:status] == 200 && res[:body].to_s.bytesize > 0
-        rescue
+        rescue StandardError
           next
         end
         last || { status: 404, body: "", content_type: "application/octet-stream" }
@@ -65,8 +72,11 @@ module MerckTools
         url = "#{@base}/users/#{CGI.escape(id_or_upn)}/directReports"
         resp = api_get(url, accept: "application/json", params: { "$select" => select })
         return [] unless resp[:status] == 200
-        data = JSON.parse(resp[:body]) rescue {}
+
+        data = JSON.parse(resp[:body])
         data["value"] || []
+      rescue JSON::ParserError
+        []
       end
 
       private

@@ -67,7 +67,11 @@ module MerckTools
             raise last_error
           end
 
-          parsed = JSON.parse(resp.body) rescue {}
+          begin
+            parsed = JSON.parse(resp.body)
+          rescue JSON::ParserError
+            raise Error, "Merck GW: invalid JSON response"
+          end
           return parsed.dig("choices", 0, "message", "content").to_s
         rescue Error
           raise

@@ -40,7 +40,11 @@ module MerckTools
         res = post_json(uri, body)
         raise Error, "OpenAI #{res.code}: #{res.body}" unless res.is_a?(Net::HTTPSuccess)
 
-        parsed = JSON.parse(res.body) rescue {}
+        begin
+          parsed = JSON.parse(res.body)
+        rescue JSON::ParserError
+          raise Error, "OpenAI: invalid JSON response"
+        end
         parsed.dig("choices", 0, "message", "content").to_s
       end
 
@@ -57,7 +61,7 @@ module MerckTools
         http = build_http(uri)
 
         http.request(req) do |res|
-          raise Error, "OpenAI stream #{res.code}" unless res.is_a?(Net::HTTPSuccess)
+          raise Error, "OpenAI stream #{res.code}: #{res.body}" unless res.is_a?(Net::HTTPSuccess)
           res.read_body do |chunk|
             buffer << chunk
             while (line = buffer.slice!(/.*\n/))
@@ -65,7 +69,11 @@ module MerckTools
               next if ln.empty? || ln.start_with?(":") || !ln.start_with?("data:")
               data = ln.sub(/^data:\s*/, "")
               return if data == "[DONE]"
-              obj = JSON.parse(data) rescue next
+              begin
+                obj = JSON.parse(data)
+              rescue JSON::ParserError
+                next
+              end
               delta = obj.dig("choices", 0, "delta", "content")
               yield delta if delta && block
             end
