@@ -9,6 +9,7 @@ module MerckTools
   autoload :Jira,       "merck_tools/jira"
   autoload :Confluence, "merck_tools/confluence"
   autoload :MSGraph,    "merck_tools/ms_graph"
+  autoload :SharePoint, "merck_tools/sharepoint"
 
   # Load credentials from CredHub on Tanzu/Cloud Foundry.
   #
