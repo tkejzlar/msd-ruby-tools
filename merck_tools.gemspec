@@ -6,7 +6,7 @@ Gem::Specification.new do |spec|
   spec.name          = "merck_tools"
   spec.version       = MerckTools::VERSION
   spec.authors       = ["tkejzlar"]
-  spec.summary       = "Shared clients for Merck internal APIs (LLM gateway, OAuth SSO, Jira, Confluence, MS Graph)"
+  spec.summary       = "Shared clients for Merck internal APIs (LLM gateway, OAuth SSO, Jira, Confluence, MS Graph, SharePoint)"
 
   spec.required_ruby_version = ">= 3.0"
 
